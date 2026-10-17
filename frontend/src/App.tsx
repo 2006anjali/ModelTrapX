@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { BrowserProvider, Contract, type Eip1193Provider } from 'ethers'
 
 const API_URL = 'http://127.0.0.1:8000'
 
@@ -249,6 +250,7 @@ function App() {
   const [verifyMode, setVerifyMode] = useState<VerifyMode>('original')
   const [verifyError, setVerifyError] = useState('')
   const [chainBusy, setChainBusy] = useState(false)
+  const [wallet, setWallet] = useState('')
   const [chainOutcome, setChainOutcome] = useState<ChainOutcome | null>(null)
 
   const runStressTest = async () => {
@@ -383,6 +385,84 @@ function App() {
       }
     } catch (err) {
       setChainOutcome({ ok: false, text: err instanceof Error ? err.message : 'Unknown error' })
+    } finally {
+      setChainBusy(false)
+    }
+  }
+
+  const getEthereum = () =>
+    (window as unknown as { ethereum?: Eip1193Provider }).ethereum
+
+  const connectWallet = async (): Promise<string | null> => {
+    const eth = getEthereum()
+    if (!eth) {
+      setChainOutcome({ ok: false, text: 'MetaMask not found. Install the MetaMask extension and reload the page.' })
+      return null
+    }
+    try {
+      const provider = new BrowserProvider(eth)
+      const accounts = (await provider.send('eth_requestAccounts', [])) as string[]
+      const network = await provider.getNetwork()
+      if (Number(network.chainId) !== 31337) {
+        await provider.send('wallet_switchEthereumChain', [{ chainId: '0x7a69' }])
+      }
+      setWallet(accounts[0])
+      return accounts[0]
+    } catch {
+      setChainOutcome({
+        ok: false,
+        text: 'Could not connect. In MetaMask, add the "Hardhat Local" network (RPC http://127.0.0.1:8545, chain ID 31337) and approve the connection.',
+      })
+      return null
+    }
+  }
+
+  const registerWithWallet = async () => {
+    if (!data) return
+    setChainBusy(true)
+    setChainOutcome(null)
+    try {
+      const account = wallet || (await connectWallet())
+      if (!account) return
+
+      const infoRes = await fetch(`${API_URL}/api/contract-info`)
+      if (!infoRes.ok) throw new Error('Contract not deployed. Run deploy.js first.')
+      const info = await infoRes.json()
+
+      // Server re-computes the hash, so a wrong hash is never signed.
+      const check = await callChain('verify-onchain', data.report, data.sha256)
+      if (check.status !== 200) {
+        throw new Error(check.json.detail ?? `Server returned status ${check.status}`)
+      }
+      if (!check.json.hash_matches) {
+        throw new Error('Report does not match its hash. Not registering.')
+      }
+      if (check.json.on_chain?.registered) {
+        setChainOutcome({ ok: true, text: 'This report hash is already registered on-chain.' })
+        return
+      }
+
+      const eth = getEthereum()
+      if (!eth) throw new Error('MetaMask not found.')
+      const signer = await new BrowserProvider(eth).getSigner()
+      const contract = new Contract(info.address, info.abi, signer)
+      const tx = await contract.registerReport(
+        '0x' + data.sha256,
+        data.report.test_suite,
+        'ModelTrap X report (MetaMask)'
+      )
+      const receipt = await tx.wait()
+      setChainOutcome({
+        ok: true,
+        text: 'Report hash registered from your MetaMask wallet.',
+        details: `Block ${receipt?.blockNumber} | Tx ${tx.hash} | Signer ${account}`,
+      })
+    } catch (err) {
+      const e = err as { code?: string; message?: string }
+      setChainOutcome({
+        ok: false,
+        text: e.code === 'ACTION_REJECTED' ? 'Transaction rejected in MetaMask.' : (e.message ?? 'Unknown error'),
+      })
     } finally {
       setChainBusy(false)
     }
@@ -548,13 +628,25 @@ function App() {
               <p style={{ margin: '0 0 12px 0', color: '#8fb3ba', fontSize: 12 }}>
                 Stores the report hash on a local test blockchain. It proves this hash was recorded at a certain time by a certain address. It does not prove the evaluation itself was correct.
               </p>
-              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              <div style={{ marginBottom: 12, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
                 <button
-                  onClick={registerOnChain}
+                  onClick={connectWallet}
                   disabled={chainBusy}
                   style={{ ...smallButton(true), cursor: chainBusy ? 'not-allowed' : 'pointer' }}
                 >
-                  {chainBusy ? 'Working...' : 'Register on blockchain'}
+                  {wallet ? 'Wallet connected' : 'Connect MetaMask'}
+                </button>
+                <span style={{ fontSize: 12, color: '#8fb3ba', wordBreak: 'break-all' }}>
+                  {wallet ? `Account: ${wallet}` : 'Not connected'}
+                </span>
+              </div>
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                <button
+                  onClick={registerWithWallet}
+                  disabled={chainBusy}
+                  style={{ ...smallButton(true), cursor: chainBusy ? 'not-allowed' : 'pointer' }}
+                >
+                  {chainBusy ? 'Working...' : 'Register with MetaMask'}
                 </button>
                 <button
                   onClick={() => verifyOnChain(false)}

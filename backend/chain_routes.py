@@ -74,3 +74,17 @@ def verify_onchain(request: ChainRequest):
         "actual_hash": actual_hash,
         "on_chain": on_chain,
     }
+
+@router.get("/contract-info")
+def contract_info():
+    import json
+    from blockchain_service import DEPLOYMENT_FILE
+
+    try:
+        data = json.loads(DEPLOYMENT_FILE.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=503,
+            detail="Contract not deployed. Run deploy.js first.",
+        )
+    return {"address": data["address"], "abi": data["abi"]}

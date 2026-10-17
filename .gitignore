@@ -17,4 +17,4 @@ blockchain/deployment.json
 # Backups and local files
 *.bak
 .env
-.DS_Store
+.DS_Storedist/
