@@ -85,4 +85,5 @@ npx hardhat test             # 6 tests
 - The backend contains Hardhat's public test private key for the demo. Never use it, or any real key stored in code, on a real network.
 - The test set has 143 cases, so one case is about 0.7 points. Small differences between models are not strong evidence.
 - This is a demonstration stress test, not a universal AI safety guarantee.
-Optional: start_demo.ps1 tries to start everything in one go (experimental). The 4-terminal steps above are the reliable way.
+
+Optional: `start_demo.ps1` tries to start everything in one go (experimental). The 4-terminal steps above are the reliable way.
